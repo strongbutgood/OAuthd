@@ -5,9 +5,16 @@ VisualStudioVersion = 16.0.31613.86
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OAuthd", "OAuthd\OAuthd.csproj", "{DE2C83F0-A4FE-440B-A6B0-85763D48529E}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "doc", "doc", "{FF22E784-33EF-41DA-9C01-40A4D47EAEAA}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{C3841A55-8C25-48E8-8F5B-96A6AD1F51C4}"
 	ProjectSection(SolutionItems) = preProject
-		README.md = README.md
+		.gitattributes = .gitattributes
+		.gitignore = .gitignore
+		doc\README.md = doc\README.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "doc", "doc", "{A614FA12-7788-43F8-AEAE-EDF7098048DA}"
+	ProjectSection(SolutionItems) = preProject
+		doc\README.md = doc\README.md
 	EndProjectSection
 EndProject
 Global
@@ -23,6 +30,9 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{A614FA12-7788-43F8-AEAE-EDF7098048DA} = {C3841A55-8C25-48E8-8F5B-96A6AD1F51C4}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {6BC20BEF-079A-422C-88A3-79458DF570C6}
