@@ -66,6 +66,7 @@ namespace OAuthd
 			//frame.attr("src", url);
 			var httpClient = new System.Net.Http.HttpClient();
 			var response = await httpClient.GetAsync(url, cts.Token);
+			await Host.Default.FileLogger.StoreRequestResponseAsync(response, null);
 			var contentString = await response.Content.ReadAsStringAsync();
 			// am I meant to call something?
 			frame.location = url;

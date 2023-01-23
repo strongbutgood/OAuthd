@@ -516,6 +516,7 @@ namespace OAuthd
 			try
 			{
 				response = await httpClient.GetAsync(url);
+				await Host.Default.FileLogger.StoreRequestResponseAsync(response, handler);
 			}
 			catch (Exception err)
 			{

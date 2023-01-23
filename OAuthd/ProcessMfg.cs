@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Linq;
+using System.Xml.XPath;
 
 namespace OAuthd
 {
@@ -11,31 +13,39 @@ namespace OAuthd
 	{
 		public string stsPath { get; }
 		public string rmpHost { get; }
+		public string aimHost { get; }
 		public TokenManager tokenManager { get; private set; }
 
-		public ProcessMfg(string stsPath = "https://AC1VS03/ASTS/", string rmpHost = "AC1VS03")
+		public ProcessMfg(string stsPath = "https://ac1vs11.milky.local/identitymanager/", string rmpHost = "AC1VS03", string aimHost = "ac1vs11.milky.local")
 		{
 			this.stsPath = stsPath;
 			this.rmpHost = rmpHost;
+			this.aimHost = aimHost;
 		}
 
 		public async Task OnDocumentReadAsync()
 		{
+			var html = (await Host.Default.MainWindow.NavigationTask).ContentString;
 			var localStorage = Host.Default.LocalStorage;
 			var location = Host.Default.location;
 			if (Host.Default.location.hash.Length > 0)
 				localStorage.setItem("index_hash", Host.Default.location.hash);
 			else
 				localStorage.removeItem("index_hash");
+			if (Host.Default.location.search.Length > 0)
+				localStorage.setItem("index_query", Host.Default.location.search);
+			else
+				localStorage.removeItem("index_query");
 			this.tokenManager = new TokenManager(new Dictionary<string, object>()
 			{
 				["client_id"] = this.rmpHost.ToUpper() + "\\Recipe Manager Plus",
-				["redirect_uri"] = location.protocol + "//" + location.hostname + "/RecipeManagerPlus/sts_callback.cshtml",
-				["post_logout_redirect_uri"] = location.protocol + "//" + location.hostname + "/RecipeManagerPlus/index.cshtml",
+				["redirect_uri"] = location.protocol + "//" + location.hostname + "/RecipeManagement/sts_callback.cshtml",
+				["post_logout_redirect_uri"] = location.protocol + "//" + location.hostname + "/RecipeManagement/index.cshtml",
 				["scope"] = "openid profile system",
 				["authority"] = this.stsPath,
-				["silent_redirect_uri"] = location.protocol + "//" + location.hostname + "/RecipeManagerPlus/sts_frame.cshtml",
+				["silent_redirect_uri"] = location.protocol + "//" + location.hostname + "/RecipeManagement/sts_frame.cshtml",
 				["silent_renew"] = true,
+				["rememberme"] = false,
 			});
 			if (this.tokenManager.access_token == null)
 			{
@@ -65,14 +75,23 @@ namespace OAuthd
 
 		public async Task DoLoginAsync()
 		{
-			var (contentString, contentBytes, contentType) = await Host.Default.MainWindow.NavigationTask;
-			var modelJson = this.GetModelJson(contentType, contentString);
-			var content3 = await Host.Default.MainWindow.PostAsync(Host.Default.location, new Dictionary<string, string>()
+			var navigation = await Host.Default.MainWindow.NavigationTask;
+			var inputs = this.GetInputs(navigation.ContentType, navigation.ContentString);
+			var modelJson = this.GetModelJson(navigation.ContentType, navigation.ContentString);
+			var formValues = inputs.ToDictionary(i => i.Key, i => i.Value.TryGetValue("value", out var value) ? value : "");
+			if (formValues.TryGetValue("ReturnUrl", out var returnUrl))
+			{
+				formValues["ReturnUrl"] = returnUrl.Replace("&lt;", "<").Replace("&gt;", ">").Replace("&quot;", "'").Replace("&amp;", "&");
+			}
+			formValues["Username"] = @"milky\svc.Aveva";
+			formValues["Password"] = @"OCdY!Adn1m";
+			/*var content3 = await Host.Default.MainWindow.PostAsync(Host.Default.location, new Dictionary<string, string>()
 			{
 				["idsrv.xsrf"] = modelJson["antiForgery"]["value"].ToObject<string>(),
-				["username"] = "administrator",
-				["password"] = "OCdY!Adn1m",
-			});
+				["Username"] = "administrator",
+				["Password"] = "OCdY!Adn1m",
+			});//*/
+			var content3 = await Host.Default.MainWindow.PostAsync(Host.Default.location, formValues);
 			await this.StsCallbackAsync();
 		}
 
@@ -88,16 +107,19 @@ namespace OAuthd
 			var hash = Host.Default.LocalStorage.getItem("index_hash");
 			if(hash == null)
 				hash = "";
+			var query = Host.Default.LocalStorage.getItem("index_query");
+			if (query == null)
+				query = "";
 			try
 			{
 				await tokenManager.processTokenCallbackAsync(null);
-				Host.Default.location = new Uri(new Uri(Host.Default.location), "/recipemanagerplus/index.cshtml" + hash).ToString();
+				Host.Default.location = new Uri(new Uri(Host.Default.location), "/RecipeManagement/index.cshtml" + query + hash).ToString();
 			}
 			catch (Exception e)
 			{
 				Console.WriteLine("Failed to process token callback: " + e);
-				Host.Default.location = new Uri(new Uri(Host.Default.location), "/recipemanagerplus/index.cshtml" + hash).ToString();
-				//Host.Default.location = "/recipemanagerplus/index.cshtml" + hash;
+				//Host.Default.location = new Uri(new Uri(Host.Default.location), "/RecipeManagement/index.cshtml" + query + hash).ToString();
+				throw new Exception("Cannot continue");
 			}
 		}
 
@@ -117,11 +139,27 @@ namespace OAuthd
 		private async Task OnTokenObtained(bool doInit = false)
 		{
 			var httpClient = new System.Net.Http.HttpClient();
-			//IdentityModel.Client.AuthorizationHeaderExtensions.SetBearerToken(httpClient, this.tokenManager.access_token);
 			httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", this.tokenManager.access_token);
+			var userName = this.tokenManager.id_token?.Count > 0 ? (string)this.tokenManager.id_token["sub"] : "";
+			var storedDeviceId = Host.Default.LocalStorage.getItem(userName) as string ?? "";
 			try
 			{
-				var response = await httpClient.PostAsync("/recipemanagerplus/api/systemmanagement/setcookie", new System.Net.Http.StringContent(""));
+				var response = await httpClient.PostAsync("/RecipeManagement/api/systemmanagement/setcookie/?deviceId=" + storedDeviceId, new System.Net.Http.StringContent(""));
+				await Host.Default.FileLogger.StoreRequestResponseAsync(response, null);
+				if (!response.IsSuccessStatusCode)
+				{
+					Console.WriteLine("Failed to get authentication cookie!");
+					//configureAccessBlockAndErrorMessageConfirmWindow();
+					//recipeManagerCommon.errorOnLogin = !0;
+					//logFailure(n)
+					throw new Exception(response.ReasonPhrase);
+				}
+				response = await httpClient.GetAsync("/RecipeManagement/api/SystemManagement/getdeviceId");
+				var gettedDeviceId = await response.Content.ReadAsStringAsync();
+				if (gettedDeviceId != storedDeviceId)
+				{
+					Host.Default.LocalStorage.setItem(userName, gettedDeviceId);
+				}
 			}
 			catch
 			{
@@ -145,6 +183,55 @@ namespace OAuthd
 			}
 			return null;
 		}
+		private Dictionary<string, Dictionary<string, string>> GetInputs(string contentType, string html)
+		{
+			if (contentType != "text/html")
+				return null;
+			try
+			{
+				var html2 = this.MakeMoreXHtml(html);
+				var xhtml = XDocument.Parse(html2);
+				var forms = xhtml.Root.XPathSelectElements("//form");
+				foreach (var form in forms)
+				{
+					var inputs = form.XPathSelectElements("//input");
+					return inputs.ToDictionary(
+						e => e.Attribute("name").Value,
+						e => e.XPathSelectElements("/@*").ToDictionary(
+							a => a.Name.LocalName,
+							a => a.Value
+						)
+					);
+				}
+			}
+			catch
+			{
+
+			}
+
+			var regex = new System.Text.RegularExpressions.Regex(@"<input(?<attr>\s+(?<attr_name>[A-Za-z_][A-Za-z0-9_-]*)\s*=\s*""(?<attr_value>[^""]*)"")*\s*/>", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+			var res = new Dictionary<string, Dictionary<string, string>>();
+			var match = regex.Match(html);
+			while (match.Success)
+			{
+				//var attrs = new Dictionary<string, string>();
+				var caps = match.Groups["attr"].Captures.Count;
+				var attrs = match.Groups["attr_name"].Captures.OfType<System.Text.RegularExpressions.Capture>()
+					.Zip(match.Groups["attr_value"].Captures.OfType<System.Text.RegularExpressions.Capture>(),
+						(n, v) => (n, v))
+					.ToDictionary(t => t.n.Value, t => t.v.Value);
+				res[attrs["name"]] = attrs;
+				match = regex.Match(html, match.Index + 1);
+			}
+			return res;
+		}
+		private string MakeMoreXHtml(string html) =>
+			System.Text.RegularExpressions.Regex.Replace(
+				System.Text.RegularExpressions.Regex.Replace(html, @"<meta(?<attrs>[^>]*)>", @"<meta${attrs}/>"),
+				@"(?<scr><script[^>]*>)(?<content>.*?)</script>",
+				@"${scr}<![CDATA[${content}]]></script>",
+				System.Text.RegularExpressions.RegexOptions.Multiline
+			).Replace("&trade;", "™");
 	}
 #pragma warning restore IDE1006 // Naming Styles
 }

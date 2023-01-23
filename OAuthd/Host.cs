@@ -12,6 +12,8 @@ namespace OAuthd
 		private static readonly Lazy<Host> __default = new Lazy<Host>();
 		public static Host Default => Host.__default.Value;
 
+		public FileLogger FileLogger { get; } = new FileLogger();
+
 		public HostWindow MainWindow { get; } = new HostWindow();
 		public HostLocation location
 		{
@@ -53,6 +55,7 @@ namespace OAuthd
 
 		public string protocol => this.Uri.Scheme + ":";
 		public string hostname => this.Uri.Host;
+		public string search => this.Uri.Query;
 		public string hash => this.Uri.Fragment;
 
 		public HostLocation(string location)
@@ -85,19 +88,26 @@ namespace OAuthd
 			{
 				if (this._location != null)
 					this._history.Push(this._location);
+				if (!value.Uri.IsAbsoluteUri)
+				{
+					var uri = new Uri(this._location);
+					var baseUri = new Uri(uri.Scheme + "://" + uri.Host);
+					uri = new Uri(baseUri, value.Uri);
+					value = uri.AbsoluteUri;
+				}
 				this._location = value;
 				_ = this.NavigateToAsync(value);
 			}
 		}
 
-		private TaskCompletionSource<(string contentString, byte[] contentBytes, string contentType)> _navigationTCS;
-		public Task<(string contentString, byte[] contentBytes, string contentType)> NavigationTask => this._navigationTCS.Task;
+		private TaskCompletionSource<HostNavigationEventArgs> _navigationTCS;
+		public Task<HostNavigationEventArgs> NavigationTask => this._navigationTCS.Task;
 		public bool IsRoot => this._parent == null;
 		public HostWindow Root => this._parent?.Root ?? this;
 		private readonly System.Net.Http.HttpClientHandler _handler;
-		private readonly System.Net.Http.HttpClient _client;
+		internal readonly System.Net.Http.HttpClient _client;
 
-		public event Action<string, string, byte[], string> Loaded;
+		public event EventHandler<HostNavigationEventArgs> Loaded;
 
 		public HostWindow(HostWindow parent = null)
 		{
@@ -105,8 +115,8 @@ namespace OAuthd
 			this._location = "#";
 			this._history = new Stack<string>();
 			this._historyFwd = new Stack<string>();
-			this._navigationTCS = new TaskCompletionSource<(string contentString, byte[] contentBytes, string contentType)>();
-			this._navigationTCS.TrySetResult((null, null, null));
+			this._navigationTCS = new TaskCompletionSource<HostNavigationEventArgs>();
+			this._navigationTCS.TrySetResult(new HostNavigationEventArgs(null, null, null, null));
 			this._handler = new System.Net.Http.HttpClientHandler();
 			this._handler.ServerCertificateCustomValidationCallback += (HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors) =>
 			{
@@ -116,7 +126,7 @@ namespace OAuthd
 			this._client = new System.Net.Http.HttpClient(this._handler);
 		}
 
-		public async Task<(string contentString, byte[] contentBytes, string contentType)> BackAsync()
+		public async Task<HostNavigationEventArgs> BackAsync()
 		{
 			if (this._history.Count > 0)
 			{
@@ -127,7 +137,7 @@ namespace OAuthd
 			}
 			return await this._navigationTCS.Task;
 		}
-		public async Task<(string contentString, byte[] contentBytes, string contentType)> ForwardAsync()
+		public async Task<HostNavigationEventArgs> ForwardAsync()
 		{
 			if (this._historyFwd.Count > 0)
 			{
@@ -139,22 +149,24 @@ namespace OAuthd
 			return await this._navigationTCS.Task;
 		}
 
-		private Task<(string contentString, byte[] contentBytes, string contentType)> NavigateToAsync(string url)
+		private Task<HostNavigationEventArgs> NavigateToAsync(string url)
 		{
 			this._navigationTCS.TrySetCanceled();
-			this._navigationTCS = new TaskCompletionSource<(string contentString, byte[] contentBytes, string contentType)>();
+			this._navigationTCS = new TaskCompletionSource<HostNavigationEventArgs>();
 			this._navigationTCS.Task.ContinueWith(r =>
 			{
 				if (!r.IsFaulted && !r.IsCanceled)
-					this.Loaded?.Invoke(url, r.Result.contentString, r.Result.contentBytes, r.Result.contentType);
+					this.Loaded?.Invoke(this, r.Result);
 			});
 			_ = this.NavigateToCoreAsync(url, this._navigationTCS);
 			return this._navigationTCS.Task;
 		}
 
-		private async Task NavigateToCoreAsync(string url, TaskCompletionSource<(string contentString, byte[] contentBytes, string contentType)> tcs)
+		private async Task NavigateToCoreAsync(string url, TaskCompletionSource<HostNavigationEventArgs> tcs)
 		{
+			Console.WriteLine("GET: {0}", url);
 			var response = await this._client.GetAsync(url).ConfigureAwait(false);
+			await Host.Default.FileLogger.StoreRequestResponseAsync(response, this._handler);
 			if (response.StatusCode == System.Net.HttpStatusCode.Redirect)
 			{
 				this._location = response.Headers.Location.ToString();
@@ -162,10 +174,7 @@ namespace OAuthd
 			}
 			else if (response.StatusCode == System.Net.HttpStatusCode.OK)
 			{
-				var contentType = response.Content.Headers.ContentType.MediaType;
-				var contentString = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-				var contentBytes = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-				tcs.TrySetResult((contentString, contentBytes, contentType));
+				tcs.TrySetResult(await HostNavigationEventArgs.CreateAsync(url, response));
 			}
 			else
 			{
@@ -181,9 +190,17 @@ namespace OAuthd
 			}
 		}
 
-		public async Task<(string, byte[], string)> PostAsync(string url, Dictionary<string, string> content)
+		public async Task<HostNavigationEventArgs> PostAsync(string url, Dictionary<string, string> content)
 		{
-			var response = await this._client.PostAsync(url, new System.Net.Http.FormUrlEncodedContent(content));
+			var formContent = new System.Net.Http.FormUrlEncodedContent(content);
+			return await this.PostAsync(url, formContent);
+		}
+		public async Task<HostNavigationEventArgs> PostAsync(string url, System.Net.Http.HttpContent content)
+		{
+			Console.WriteLine("POST: {0}", url);
+			Console.WriteLine(await content.ReadAsStringAsync());
+			var response = await this._client.PostAsync(url, content);
+			await Host.Default.FileLogger.StoreRequestResponseAsync(response, this._handler);
 			if (response.StatusCode == System.Net.HttpStatusCode.Redirect)
 			{
 				this.location = response.Headers.Location.ToString();
@@ -191,10 +208,7 @@ namespace OAuthd
 			}
 			else if (response.StatusCode == System.Net.HttpStatusCode.OK)
 			{
-				var contentType = response.Content.Headers.ContentType.MediaType;
-				var contentString = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-				var contentBytes = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-				return (contentString, contentBytes, contentType);
+				return await HostNavigationEventArgs.CreateAsync(url, response);
 			}
 			else
 			{
@@ -220,6 +234,31 @@ namespace OAuthd
 		public void removeItem(string key)
 		{
 			this.Remove(key);
+		}
+	}
+	class HostNavigationEventArgs : EventArgs
+	{
+		public string Url { get; }
+		public string ContentString { get; }
+		public byte[] ContentBytes { get; }
+		public string ContentType { get; }
+		public string Raw { get; }
+
+		public HostNavigationEventArgs(string url, string contentString, byte[] contentBytes, string contentType, string raw = null)
+		{
+			this.Url = url;
+			this.ContentString = contentString;
+			this.ContentBytes = contentBytes;
+			this.ContentType = contentType;
+		}
+		public static async Task<HostNavigationEventArgs> CreateAsync(string url, System.Net.Http.HttpResponseMessage response)
+		{
+			return new HostNavigationEventArgs(
+				url,
+				await response.Content.ReadAsStringAsync().ConfigureAwait(false),
+				await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false),
+				response.Content.Headers.ContentType.MediaType,
+				response.ToString());
 		}
 	}
 	class MessageEvent

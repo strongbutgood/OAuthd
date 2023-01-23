@@ -10,7 +10,7 @@ namespace OAuthd
 #pragma warning disable IDE1006 // Naming Styles
 	class Token
 	{
-		public readonly string id_token;
+		public readonly IDictionary<string, object> id_token;
 		public readonly string id_token_jwt;
 		public readonly string access_token;
 		public readonly long expires_at;
@@ -19,7 +19,7 @@ namespace OAuthd
 		public bool expired => this.expires_at < (JSBuiltIns.Date_now() / 1000);
 		public long expires_in => this.expires_at - (JSBuiltIns.Date_now() / 1000);
 
-		public Token(string id_token, string id_token_jwt, string access_token, long expires_at, string scope)
+		public Token(IDictionary<string, object> id_token, string id_token_jwt, string access_token, long expires_at, string scope)
 		{
 			this.id_token = id_token;
 			this.id_token_jwt = id_token_jwt;
@@ -30,7 +30,7 @@ namespace OAuthd
 			}
 			else if (id_token != null)
 			{
-				this.expires_at = Newtonsoft.Json.Linq.JObject.Parse(id_token).Value<long>("exp");
+				this.expires_at = Convert.ToInt64(id_token["exp"]);
 			}
 			else
 			{
@@ -54,7 +54,7 @@ namespace OAuthd
 					var response_expires_in = jResponse["expires_in"].ToObject<string>();
 					expires_at = now + Convert.ToInt64(response_expires_in);
 				}
-				var response_id_token = jResponse["expires_in"].ToObject<string>();
+				var response_id_token = ((Newtonsoft.Json.Linq.JObject)jResponse["id_token"]).Properties().ToDictionary(p => p.Name, p => p.Value.ToObject<object>());
 				var response_id_token_jwt = jResponse["id_token_jwt"].ToObject<string>();
 				var response_scope = jResponse["scope"].ToObject<string>();
 				return new Token(response_id_token, response_id_token_jwt, response_access_token, expires_at, response_scope);
@@ -68,7 +68,7 @@ namespace OAuthd
 			{
 				try
 				{
-					var obj = Newtonsoft.Json.JsonConvert.DeserializeAnonymousType(json, new { id_token = "", id_token_jwt = "0", access_token = "", expires_at = 0, scope = "" });
+					var obj = Newtonsoft.Json.JsonConvert.DeserializeAnonymousType(json, new { id_token = new Dictionary<string, object>(), id_token_jwt = "0", access_token = "", expires_at = 0, scope = "" });
 					return new Token(obj.id_token, obj.id_token_jwt, obj.access_token, obj.expires_at, obj.scope);
 				}
 				catch (Exception)

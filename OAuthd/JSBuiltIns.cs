@@ -10,7 +10,14 @@ namespace OAuthd
 	{
 		public static long Date_now()
 		{
-			return (long)(DateTime.Now - new DateTime(1970, 1, 1, 0, 0, 0)).TotalMilliseconds;
+			var now = DateTime.UtcNow;
+			/*if (TimeZoneInfo.Local.IsDaylightSavingTime(now))
+			{
+				var utc = TimeZoneInfo.ConvertTimeToUtc(now);
+				var newNow = TimeZoneInfo.ConvertTimeFromUtc(utc, TimeZoneInfo.FindSystemTimeZoneById("New Zealand Standard Time"));
+				return (long)(newNow - new DateTime(1970, 1, 1, 0, 0, 0)).TotalMilliseconds;
+			}//*/
+			return (long)(now - new DateTime(1970, 1, 1, 0, 0, 0)).TotalMilliseconds;
 		}
 	}
 }

@@ -22,11 +22,11 @@ namespace OAuthd
 #else
 			this._tcs = new TaskCompletionSource<bool>();
 #endif
-			Host.Default.MainWindow.Loaded += (url, str, bytes, typ) =>
+			Host.Default.MainWindow.Loaded += (s, args) => // (url, str, bytes, typ) =>
 			{
 #if WINWAIT_V2
-				var tcs = this._queue.GetOrAdd(url, u => new TaskCompletionSource<string>());
-				tcs.TrySetResult(url);
+				var tcs = this._queue.GetOrAdd(args.Url, u => new TaskCompletionSource<string>());
+				tcs.TrySetResult(args.Url);
 #else
 				this._tcs.TrySetResult(true);
 #endif

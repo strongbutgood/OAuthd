@@ -105,8 +105,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="FileLogger.cs" />
     <Compile Include="FrameLoader.cs" />
     <Compile Include="Host.cs" />
+    <Compile Include="HttpClientExtensions.cs" />
     <Compile Include="JSBuiltIns.cs" />
     <Compile Include="KJUR\crypto\Mac.cs" />
     <Compile Include="KJUR\crypto\MessageDigest.cs" />

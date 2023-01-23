@@ -18,7 +18,7 @@ namespace OAuthd
 
 		internal Token Token => this._token;
 
-		public string id_token => this._token?.id_token;
+		public IDictionary<string, object> id_token => this._token?.id_token;
 		public string id_token_jwt => this._token?.id_token_jwt;
 		public string access_token => this._token != null && !this._token.expired ? this._token.access_token : default;
 		public bool expired => this._token?.expired ?? true;
