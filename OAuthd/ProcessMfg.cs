@@ -9,8 +9,11 @@ using System.Xml.XPath;
 namespace OAuthd
 {
 #pragma warning disable IDE1006 // Naming Styles
-	class ProcessMfg
+	class ProcessMfg : IAsyncDisposable
 	{
+		private bool disposedValue;
+		private bool logoutActive;
+
 		public string stsPath { get; }
 		public string rmpHost { get; }
 		public string aimHost { get; }
@@ -123,16 +126,23 @@ namespace OAuthd
 			}
 		}
 
-		public void logoutUser(bool removeCookie)
+		public async Task logoutUser(bool removeCookie)
 		{
-			if (removeCookie)
+			if (!this.logoutActive)
 			{
-				this.tokenManager.redirectForLogout();
-				Host.Default.LocalStorage.removeItem("activeLogin");
-			}
-			else
-			{
-				this.tokenManager.removeToken();
+				var httpClient = new System.Net.Http.HttpClient();
+				httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", this.tokenManager.access_token);
+				var response = await httpClient.PutAsync("/RecipeManagement/api/systemmanagement/logout?removeCookie=" + removeCookie, new System.Net.Http.StringContent(""));
+				await Host.Default.FileLogger.StoreRequestResponseAsync(response, null);
+				if (removeCookie)
+				{
+					this.tokenManager.redirectForLogout();
+					Host.Default.LocalStorage.removeItem("activeLogin");
+				}
+				else
+				{
+					this.tokenManager.removeToken();
+				}
 			}
 		}
 
@@ -232,6 +242,11 @@ namespace OAuthd
 				@"${scr}<![CDATA[${content}]]></script>",
 				System.Text.RegularExpressions.RegexOptions.Multiline
 			).Replace("&trade;", "™");
+		
+		public async ValueTask DisposeAsync()
+		{
+			await this.logoutUser(true);
+		}
 	}
 #pragma warning restore IDE1006 // Naming Styles
 }

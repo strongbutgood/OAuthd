@@ -26,27 +26,27 @@ namespace OAuthd.KJUR.jws
 
 		public Parsed parsedJWS;
 
-		private string t(dynamic n)
+		private string getAlg(dynamic n)
 		{
-			var t = n.alg;
-			var i = "";
-			if (t != "RS256" && t != "RS512" && t != "PS256" && t != "PS512")
-				throw new Exception("JWS signature algorithm not supported: " + t);
-			if (t.Substring(2) == "256")
-				i = "sha256";
-			if (t.Substring(2) == "512")
-				i = "sha512";
-			return i;
+			var jws_alg = n.alg;
+			var result_alg = "";
+			if (jws_alg != "RS256" && jws_alg != "RS512" && jws_alg != "PS256" && jws_alg != "PS512")
+				throw new Exception("JWS signature algorithm not supported: " + jws_alg);
+			if (jws_alg.Substring(2) == "256")
+				result_alg = "sha256";
+			if (jws_alg.Substring(2) == "512")
+				result_alg = "sha512";
+			return result_alg;
 		}
 
-		public void parseJWS(string jwt, bool t)
+		public void parseJWS(string jws, bool t)
 		{
 			string f;
 			BigInteger o;
-			string i, s;
+			string headerJson, payloadJson;
 			if (this.parsedJWS == null || !t && this.parsedJWS.sigvalH == null)
 			{
-				var match = System.Text.RegularExpressions.Regex.Match(jwt, "^([^.]+).([^.]+).([^.]+)$");
+				var match = System.Text.RegularExpressions.Regex.Match(jws, "^([^.]+).([^.]+).([^.]+)$");
 				if (!match.Success)
 					throw new Exception("JWS signature is not a form of 'Head.Payload.SigValue'.");
 				var head = match.Groups[1].Value;
@@ -67,45 +67,45 @@ namespace OAuthd.KJUR.jws
 					this.parsedJWS.sigvalH = f;
 					this.parsedJWS.sigvalBI = o;
 				}
-				i = head.Base64UrlToUtf8(); // b64utoutf8(head);
-				s = payload.Base64UrlToUtf8(); //b64utoutf8(payload);
-				this.parsedJWS.headS = i;
-				this.parsedJWS.payloadS = s;
-				if (!KJUR.jws.JWS.isSafeJSONString(i, this.parsedJWS, "headP"))
-					throw new Exception("malformed JSON string for JWS Head: " + i);
+				headerJson = head.Base64UrlToUtf8(); // b64utoutf8(head);
+				payloadJson = payload.Base64UrlToUtf8(); //b64utoutf8(payload);
+				this.parsedJWS.headS = headerJson;
+				this.parsedJWS.payloadS = payloadJson;
+				if (!KJUR.jws.JWS.isSafeJSONString(headerJson, this.parsedJWS, "headP"))
+					throw new Exception("malformed JSON string for JWS Head: " + headerJson);
 			}
 		}
 
-		public bool verifyJWSByNE(string n, object rsapars, int rsaKeyLength)
+		public bool verifyJWSByNE(string jws, object rsapars, int rsaKeyLength)
 		{
-			this.parseJWS(n, default);
+			this.parseJWS(jws, default);
 			//return _rsasign_verifySignatureWithArgs(this.parsedJWS.si, this.parsedJWS.sigvalBI, rsapars, rsaKeyLength);
 			return default;
 		}
-		public bool verifyJWSByKey(string n, dynamic i)
+		public bool verifyJWSByKey(string jws, dynamic i)
 		{
-			this.parseJWS(n, false);
-			var r = t(this.parsedJWS.headP);
-			var u = this.parsedJWS.headP.alg.Substring(0, 2) == "PS";
+			this.parseJWS(jws, false);
+			var alg = this.getAlg(this.parsedJWS.headP);
+			var isPSAlg = this.parsedJWS.headP.alg.Substring(0, 2) == "PS";
 			if (i.hashAndVerify)
 			{
 				//return i.hashAndVerify(r, new Buffer(this.parsedJWS.si, "utf8").toString("base64"), b64utob64(this.parsedJWS.sigvalB64U), "base64", u);
-				return i.hashAndVerify(r, this.parsedJWS.si.Utf8ToBase64Url().Base64UrlToBase64(), this.parsedJWS.sigvalB64U.Base64UrlToBase64(), "base64", u);
+				return i.hashAndVerify(alg, this.parsedJWS.si.Utf8ToBase64Url().Base64UrlToBase64(), this.parsedJWS.sigvalB64U.Base64UrlToBase64(), "base64", isPSAlg);
 			}
 			else
 			{
-				if (u)
-					return i.verifyStringPSS(this.parsedJWS.si, this.parsedJWS.sigvalH, r);
+				if (isPSAlg)
+					return i.verifyStringPSS(this.parsedJWS.si, this.parsedJWS.sigvalH, alg);
 				else
 					return i.verifyString(this.parsedJWS.si, this.parsedJWS.sigvalH);
 			}
 		}
-		public dynamic verifyJWSByPemX509Cert(string jwt, byte[] certBytes)
+		public dynamic verifyJWSByPemX509Cert(string jws, byte[] certBytes)
 		{
-			this.parseJWS(jwt, false);
+			this.parseJWS(jws, false);
 			//var i = new X509;
-			var i = new System.Security.Cryptography.X509Certificates.X509Certificate2(certBytes);
-			var rsa = System.Security.Cryptography.X509Certificates.RSACertificateExtensions.GetRSAPublicKey(i);
+			var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(certBytes);
+			var rsa = System.Security.Cryptography.X509Certificates.RSACertificateExtensions.GetRSAPublicKey(cert);
 			var result = rsa.VerifyData(
 				Encoding.UTF8.GetBytes(this.parsedJWS.si),
 				this.parsedJWS.sigvalH.HexStringToBase64().Base64ToByteArray(),
@@ -117,37 +117,32 @@ namespace OAuthd.KJUR.jws
 			//return i.subjectPublicKeyRSA.verifyString(this.parsedJWS.si, this.parsedJWS.sigvalH)
 		}
 
-		public static bool isSafeJSONString(string n, object target, string propName)
+		public static bool isSafeJSONString(string json, object target, string propName)
 		{
 			try
 			{
-				var r = Newtonsoft.Json.Linq.JObject.Parse(n);
-				if (r.Type != Newtonsoft.Json.Linq.JTokenType.Object)
-				{
+				var jObj = Newtonsoft.Json.Linq.JObject.Parse(json);
+				if (jObj.Type != Newtonsoft.Json.Linq.JTokenType.Object)
 					return false;
-				}
+				else if (jObj.Type == Newtonsoft.Json.Linq.JTokenType.Array)
+					return false;
 				else
 				{
-					if (r.Type == Newtonsoft.Json.Linq.JTokenType.Array)
-						return false;
-					else
+					if (target != null)
 					{
-						if (target != null)
+						var prop = target.GetType().GetProperty(propName);
+						if (prop != null)
+							prop.SetValue(target, jObj);
+						else
 						{
-							var prop = target.GetType().GetProperty(propName);
-							if (prop != null)
-								prop.SetValue(target, r);
-							else
+							if (target is IDictionary<string, object> dict)
 							{
-								if (target is IDictionary<string, object> dict)
-								{
-									dict[propName] = r;
-								}
+								dict[propName] = jObj;
 							}
-							//target[propName] = r;
 						}
-						return true;
+						//target[propName] = r;
 					}
+					return true;
 				}
 			}
 			catch

@@ -337,7 +337,7 @@ namespace OAuthd
 			var sha = System.Security.Cryptography.SHA256Cng.Create();
 			var has2 = sha.ComputeHash(Encoding.UTF8.GetBytes(access_token));
 			var lef2a = has2.ToHexString();
-			var lef2 = lef2a.Substring(0, lef2a.Length / 2).ToLower();
+			var lef2 = lef2a.Substring(0, lef2a.Length / 2);
 
 			var hash = KJUR.crypto.Util.sha256(access_token);
 			var left = hash.Substring(0, hash.Length / 2);

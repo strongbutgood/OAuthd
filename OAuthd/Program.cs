@@ -13,12 +13,13 @@ namespace OAuthd
 		static async Task Main(string[] args)
 		{
 			//Host.Default.MainWindow.Loaded += MainWindow_Loaded;
+			ProcessMfg processMfg = default;
 			try
 			{
 				Host.Default.location = "https://ac1vs03/RecipeManagement";
 				var waiter = new WindowLoadWaiter();
 				await waiter.WaitAsync();
-				var processMfg = new ProcessMfg();
+				processMfg = new ProcessMfg();
 				await processMfg.OnDocumentReadAsync();
 				await waiter.WaitAsync();
 				await processMfg.DoLoginAsync();
@@ -28,6 +29,11 @@ namespace OAuthd
 			catch (Exception ex)
 			{
 				Console.WriteLine(ex);
+			}
+			finally
+			{
+				if (processMfg != null)
+					await processMfg.DisposeAsync();
 			}
 			
 
