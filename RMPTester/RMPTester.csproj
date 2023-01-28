@@ -36,6 +36,9 @@
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>..\packages\Newtonsoft.Json.13.0.2\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
+    <Reference Include="Nito.OptionParsing, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\Nito.OptionParsing.1.0.0\lib\netstandard2.0\Nito.OptionParsing.dll</HintPath>
+    </Reference>
     <Reference Include="RecMngrPlusModel, Version=1.0.0.0, Culture=neutral, PublicKeyToken=23106a86e706d0ae, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>.\RecMngrPlusModel.dll</HintPath>

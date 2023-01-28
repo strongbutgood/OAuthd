@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using MATS.Common.ERP;
 using MATS.Module.RecipeManagerPlus.ArchestrA.Web;
 using MATS.Module.RecipeManagerPlus.QueryBuilders;
 using ProcessMfg.Model;
@@ -379,5 +378,12 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator
 			// get formula equipments count
 			var count = equipmentQuery.GetCount(includeCheckedOut: false);
 		}
+	}
+
+	public class FormulaParameterValue
+	{
+		public string MinValue { get; internal set; }
+		public string MaxValue { get; internal set; }
+		public string Value { get; internal set; }
 	}
 }

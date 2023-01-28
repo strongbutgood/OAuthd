@@ -5,7 +5,7 @@ using System.Linq.Expressions;
 using System.Text;
 using System.Threading.Tasks;
 using MATS.Module.RecipeManagerPlus.ArchestrA.Web;
-using MATS.Common;
+//using MATS.Common;
 using MATS.Module.RecipeManagerPlus.QueryBuilders;
 using ProcessMfg.Model;
 
@@ -36,7 +36,8 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator
 		/// <param name="entities">The entities to be displayed on this page.</param>
 		protected ClientSummaryPage(IEnumerable<TEntity> entities)
 		{
-			ThrowHelper.IfArgumentNull(() => entities);
+			if (entities == null)
+				throw new ArgumentNullException(nameof(entities));
 			this.Entities = this.CreateEntitySet(entities);
 		}
 
@@ -109,8 +110,7 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator
 		/// <param name="entity">The entity to be displayed on this page.</param>
 		protected ClientDetailPage(TEntity entity)
 		{
-			ThrowHelper.IfArgumentNull(() => entity);
-			this.Entity = entity;
+			this.Entity = entity ?? throw new ArgumentNullException(nameof(entity));
 		}
 		
 		#region IVersionedButtons Members

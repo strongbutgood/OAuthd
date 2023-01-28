@@ -9,8 +9,10 @@ using System.Net.Http;
 using System.Net.Security;
 using System.Reflection;
 using System.Runtime.Serialization;
+using System.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.XPath;
@@ -24,10 +26,12 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator.WebApp
 		private readonly TokenManager _tokenManager;
 		private readonly HttpClient _httpClient;
 		private readonly IDictionary<string, object> _store;
+		private readonly Func<string> _getUserName;
+		private readonly Func<string, string> _getUserPassword;
 		private bool _activeLogin;
 		private bool _logoutActive;
 
-		public static async Task<RestAPI> Create(string rmpHost)
+		public static async Task<RestAPI> Create(string rmpHost, Func<string> getUserName, Func<string, string> getUserPassword)
 		{
 			var store = new Dictionary<string, object>();
 			var handler = new HttpClientHandler();
@@ -49,33 +53,43 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator.WebApp
 			});
 			if (tokenManager.Token?.AccessToken == null)
 			{
-				await tokenManager.RedirectForTokenAsync(async url => await DoLoginAsync(url, httpClient));
+				await tokenManager.RedirectForTokenAsync(async url => await DoLoginAsync(url, httpClient, getUserName, getUserPassword));
 			}
 			if (tokenManager.Token?.AccessToken != null)
 			{
 			}
-			var restApi = new RestAPI(rmpHost, stsPath, tokenManager, httpClient, store);
-			tokenManager.TokenObtained += async (s, e) => await restApi.OnTokenObtained(false);
-			await restApi.OnTokenObtained(true);
+			var restApi = new RestAPI(rmpHost, stsPath, tokenManager, httpClient, store, getUserName, getUserPassword);
+			try
+			{
+				tokenManager.TokenObtained += async (s, e) => await restApi.OnTokenObtained(false);
+				await restApi.OnTokenObtained(true);
+			}
+			catch
+			{
+				restApi.Dispose();
+				throw;
+			}
 			return restApi;
 		}
 
 		public string LoggedInUser => throw new NotImplementedException();
 
-		private RestAPI(string rmpHost, string stsPath, TokenManager tokenManager, HttpClient httpClient, IDictionary<string, object> store)
+		private RestAPI(string rmpHost, string stsPath, TokenManager tokenManager, HttpClient httpClient, IDictionary<string, object> store, Func<string> getUserName, Func<string, string> getUserPassword)
 		{
 			this._rmpHost = rmpHost;
 			this._stsPath = stsPath;
 			this._tokenManager = tokenManager;
 			this._httpClient = httpClient;
 			this._store = store;
+			this._getUserName = getUserName;
+			this._getUserPassword = getUserPassword;
 			this._activeLogin = this._tokenManager.Token?.AccessToken != null;
 			var timer = new System.Timers.Timer(5000);
 			void callback(object s, System.Timers.ElapsedEventArgs e)
 			{
 				if (!this._activeLogin)
 				{
-					_ = this.LogoutUser(true);
+					_ = this.LogoutUserAsync(true);
 					timer.Stop();
 					timer.Dispose();
 					timer = null;
@@ -93,10 +107,10 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator.WebApp
 			var httpClient = this.CreateHttpClient();
 			var content = Task.Run(async () =>
 			{
-				using (var response = await httpClient.GetAsync(url))
-				{
-					return Tuple.Create(response, await response.Content.ReadAsStringAsync());
-				}
+				if (url.StartsWith("api/"))
+					url = "/RecipeManagement/" + url;
+				var response = await httpClient.GetAsync(url);
+				return Tuple.Create(response, await response.Content.ReadAsStringAsync());
 			}).Result;
 			return RestAPI.ToResource(content.Item1, content.Item2);
 		}
@@ -106,11 +120,11 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator.WebApp
 		public Resource Put(string url, Resource resource) => throw new NotImplementedException();
 		public void Dispose()
 		{
-			Task.Run(async () => await this.LogoutUser(false));
+			Task.Run(async () => await this.LogoutUserAsync(false)).GetAwaiter().GetResult();
 			this._httpClient.Dispose();
 		}
 
-		private async Task LogoutUser(bool removeCookie)
+		private async Task LogoutUserAsync(bool removeCookie)
 		{
 			if (!this._logoutActive)
 			{
@@ -132,7 +146,7 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator.WebApp
 			}
 		}
 
-		private static async Task<string> DoLoginAsync(string url, HttpClient httpClient)
+		private static async Task<string> DoLoginAsync(string url, HttpClient httpClient, Func<string> getUserName, Func<string, string> getUserPassword)
 		{
 			string contentType;
 			string content;
@@ -152,21 +166,35 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator.WebApp
 			{
 				formValues["ReturnUrl"] = returnUrl.Replace("&lt;", "<").Replace("&gt;", ">").Replace("&quot;", "'").Replace("&amp;", "&");
 			}
-			formValues["Username"] = @"milky\svc.Aveva";
-			formValues["Password"] = @"OCdY!Adn1m";
-			/*var content3 = await Host.Default.MainWindow.PostAsync(Host.Default.location, new Dictionary<string, string>()
+			string userName;
+			do
 			{
-				["idsrv.xsrf"] = modelJson["antiForgery"]["value"].ToObject<string>(),
-				["Username"] = "administrator",
-				["Password"] = "OCdY!Adn1m",
-			});//*/
+				userName = getUserName();
+			} while (string.IsNullOrWhiteSpace(userName));
+			formValues["Username"] = userName; // @"milky\svc.Aveva";
+			string password;
+			do
+			{
+				password = getUserPassword(userName);
+			} while (string.IsNullOrEmpty(password));
+			formValues["Password"] = password; // @"OCdY!Adn1m";
 			using (var postRequest = new HttpRequestMessage(HttpMethod.Post, loginUrl) { Content = new FormUrlEncodedContent(formValues) })
 			{
 				using (var postResponse = await WithRedirects(httpClient, postRequest, 2))
 				{
 					if (postResponse.Headers.Location != null)
-						return postResponse.Headers.Location.AbsoluteUri;
+					{
+						if (postResponse.Headers.Location != new Uri(loginUrl))
+						{
+							return postResponse.Headers.Location.AbsoluteUri;
+						}
+					}
 					var postResponseContent = await postResponse.Content.ReadAsStringAsync();
+					var validationErrors = GetValidationErrors(postResponse.Content.Headers.ContentType.MediaType, postResponseContent);
+					if (validationErrors.Any())
+					{
+						Console.WriteLine("Login validation errors:\r\n\t{0}", string.Join("\r\n\t", validationErrors));
+					}
 					throw new Exception("Location not available, see data for content.")
 					{
 						Data =
@@ -176,6 +204,24 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator.WebApp
 					};
 				}
 			}
+		}
+
+		private static List<string> GetValidationErrors(string contentType, string postResponseContent)
+		{
+			if (contentType != "text/html")
+				return null;
+			var regex = new Regex(@"<div[^>]*?class=""danger validation-summary-errors""[^>]*?>(?:\s|\r|\n)*<ul>(?:\s|\r|\n|(?:<li>(?<validation>[^<]*?)</li>))*");
+			var match = regex.Match(postResponseContent);
+			if (match.Success)
+			{
+				if (match.Groups["validation"].Success ||
+					match.Groups["class"].Success &&
+					match.Groups["class"].Captures.OfType<Capture>().Any(c => c.Value == "validation-summary-errors"))
+				{
+					return match.Groups["validation"].Captures.OfType<Capture>().Select(c => c.Value).ToList();
+				}
+			}
+			return new List<string>();
 		}
 
 		private static async Task<HttpResponseMessage> WithRedirects(HttpClient httpClient, HttpRequestMessage request, int maxRedirects)
@@ -223,18 +269,6 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator.WebApp
 				response.Headers.Location = requestStack.Peek().RequestUri;
 			return response;
 		}
-		/*private static async Task<HttpResponseMessage> WithRedirects(HttpClient httpClient, int maxRedirects, Func<HttpClient, Task<HttpResponseMessage>> clientRequest)
-		{
-			var response = await clientRequest(httpClient);
-			if (response.StatusCode == System.Net.HttpStatusCode.Redirect)
-			{
-				if (maxRedirects <= 0)
-					throw new InvalidOperationException("Too many redirects.");
-				return await WithRedirects(httpClient, maxRedirects - 1, async httpClient2 => await httpClient2.GetAsync(response.Headers.Location.AbsoluteUri.Replace("%25", "%")));
-			}
-			response.EnsureSuccessStatusCode();
-			return response;
-		}//*/
 
 		private static Dictionary<string, Dictionary<string, string>> GetInputs(string contentType, string html)
 		{
@@ -399,6 +433,13 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator.WebApp
 				string xmlContent = response.Content.ReadAsStringAsync().Result;
 				try
 				{
+					if (!response.IsSuccessStatusCode)
+					{
+						var jsonSerializer = new Newtonsoft.Json.JsonSerializer();
+						var jsonReader = new Newtonsoft.Json.JsonTextReader(new System.IO.StringReader(entity));
+						var viewCommandResult = jsonSerializer.Deserialize<ProcessMfg.Model.ViewCommandResult>(jsonReader);
+						return viewCommandResult.ToResource((int)response.StatusCode);
+					}
 					return new Resource(xmlContent, (int)response.StatusCode);
 				}
 				catch (XmlException ex)

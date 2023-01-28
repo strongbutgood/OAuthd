@@ -6,7 +6,6 @@ using System.Linq.Expressions;
 using System.Text;
 using System.Threading.Tasks;
 using ProcessMfg.Model;
-using MATS.Common;
 
 namespace MATS.Module.RecipeManagerPlus.ClientSimulator
 {
@@ -50,7 +49,8 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator
 
 		protected override int GetKeyForItem(TEntity item)
 		{
-			ThrowHelper.IfArgumentNull(() => item);
+			if (item == null)
+				throw new ArgumentNullException(nameof(item));
 			return item.Id;
 		}
 
