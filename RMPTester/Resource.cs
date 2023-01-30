@@ -33,7 +33,7 @@ namespace MATS.Module.RecipeManagerPlus.ArchestrA.Web
 		{
 			XmlDocument xmlDocument = new XmlDocument();
 			xmlDocument.LoadXml(xml);
-			this.m_RootNode = xmlDocument.FirstChild;
+			this.m_RootNode = xmlDocument.DocumentElement;
 			this.HttpStatus = httpStatus;
 		}
 

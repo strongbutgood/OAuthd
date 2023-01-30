@@ -395,6 +395,10 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator.WebApp
 				BaseAddress = new Uri("https://" + this._rmpHost),
 				DefaultRequestHeaders =
 				{
+					Accept =
+					{
+						new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/xml"),
+					},
 					Authorization = access_token != null ? new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", access_token) : default,
 				},
 			};
@@ -440,6 +444,7 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator.WebApp
 						var viewCommandResult = jsonSerializer.Deserialize<ProcessMfg.Model.ViewCommandResult>(jsonReader);
 						return viewCommandResult.ToResource((int)response.StatusCode);
 					}
+					//var xmlContent2 = JsonToXml(xmlContent);
 					return new Resource(xmlContent, (int)response.StatusCode);
 				}
 				catch (XmlException ex)
@@ -483,6 +488,86 @@ namespace MATS.Module.RecipeManagerPlus.ClientSimulator.WebApp
 				result = string.Empty;
 			}
 			return new Resource(result);
+		}
+
+		private static string JsonToXml(string jsonString)
+		{
+			var json = Newtonsoft.Json.Linq.JToken.Parse(jsonString);
+			var sb = new StringBuilder();
+			using (var xw = XmlWriter.Create(new StringWriter(sb)))
+			{
+				var wrap = json.Type != Newtonsoft.Json.Linq.JTokenType.Object;
+				if (wrap)
+					xw.WriteStartElement("Root");
+				jTokenToXml(json, xw);
+				if (wrap)
+					xw.WriteEndElement();
+			}
+			return sb.ToString();
+
+			void jTokenToXml(Newtonsoft.Json.Linq.JToken jToken, XmlWriter xmlWriter)
+			{
+				switch (jToken.Type)
+				{
+					case Newtonsoft.Json.Linq.JTokenType.Comment:
+						xmlWriter.WriteComment(jToken.ToString());
+						break;
+					case Newtonsoft.Json.Linq.JTokenType.Array:
+						jArrayToXml((Newtonsoft.Json.Linq.JArray)jToken, xmlWriter);
+						break;
+					case Newtonsoft.Json.Linq.JTokenType.Object:
+						jObjectToXml((Newtonsoft.Json.Linq.JObject)jToken, xmlWriter);
+						break;
+					case Newtonsoft.Json.Linq.JTokenType.Property:
+						jPropertyToXml((Newtonsoft.Json.Linq.JProperty)jToken, xmlWriter);
+						break;
+					case Newtonsoft.Json.Linq.JTokenType.Integer:
+					case Newtonsoft.Json.Linq.JTokenType.Float:
+					case Newtonsoft.Json.Linq.JTokenType.String:
+					case Newtonsoft.Json.Linq.JTokenType.Boolean:
+					case Newtonsoft.Json.Linq.JTokenType.Date:
+					case Newtonsoft.Json.Linq.JTokenType.Guid:
+					case Newtonsoft.Json.Linq.JTokenType.Uri:
+					case Newtonsoft.Json.Linq.JTokenType.TimeSpan:
+						xmlWriter.WriteString(jToken.ToString());
+						break;
+					case Newtonsoft.Json.Linq.JTokenType.Raw:
+						xmlWriter.WriteString(jToken.ToString());
+						break;
+					case Newtonsoft.Json.Linq.JTokenType.Bytes:
+						xmlWriter.WriteString(jToken.ToString());
+						break;
+					case Newtonsoft.Json.Linq.JTokenType.None:
+					case Newtonsoft.Json.Linq.JTokenType.Undefined:
+					case Newtonsoft.Json.Linq.JTokenType.Null:
+					case Newtonsoft.Json.Linq.JTokenType.Constructor:
+					default:
+						break;
+				}
+			}
+			void jArrayToXml(Newtonsoft.Json.Linq.JArray jArray, XmlWriter xmlWriter)
+			{
+				foreach (var jToken in jArray)
+				{
+					xmlWriter.WriteStartElement("Item");
+					jTokenToXml(jToken, xmlWriter);
+					xmlWriter.WriteEndElement();
+				}
+			}
+			void jObjectToXml(Newtonsoft.Json.Linq.JObject jObject, XmlWriter xmlWriter)
+			{
+				foreach (var jProperty in jObject.Properties())
+				{
+					jPropertyToXml(jProperty, xmlWriter);
+				}
+			}
+			void jPropertyToXml(Newtonsoft.Json.Linq.JProperty jProperty, XmlWriter xmlWriter)
+			{
+				xmlWriter.WriteStartElement(jProperty.Name);
+				jTokenToXml(jProperty.Value, xmlWriter);
+				xmlWriter.WriteEndElement();
+			}
+
 		}
 
 		///*
